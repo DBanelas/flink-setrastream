@@ -20,10 +20,15 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple3<Long, Long, Integer>, Integer, GlobalWindow> {
-    private final int numBatchesInSegmentationWindow;
+    // Constants used in the algorithm
     private final double RV_EPSILON = 1e-12;
     private final int NUM_POINTS_IN_EPISODE_PLACEHOLDER = 1;
+
+    // Constructor variables
+    private final int numBatchesInSegmentationWindow;
     private final double segmentationThreshold;
+
+    // State variables
     private ValueState<Boolean> firstWindowState;
     private ListState<Batch> openEpisodeState;
 
@@ -34,7 +39,7 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
     }
 
     @Override
-    public void open(Configuration parameters) throws Exception {
+    public void open(Configuration parameters) {
         ValueStateDescriptor<Boolean> firstWindowStateDescriptor = new ValueStateDescriptor<>(
                 "firstWindowState",
                 TypeInformation.of(Boolean.class));
@@ -68,6 +73,7 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
             // Process later windows
             // Here, only the last batch needs to be compared against the exponential window
             // of open episodes
+            processNonFirstWindow(openEpisodeBatches, windowBatchList.get(windowBatchList.size() - 1), collector);
         }
 
         openEpisodeState.update(new ArrayList<>(openEpisodeBatches));
@@ -80,6 +86,27 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
         return buffer;
 
     }
+
+    private void processNonFirstWindow(Deque<Batch> openEpisodeBatches,
+                                       Batch right,
+                                       Collector<Tuple3<Long, Long, Integer>> collector) {
+
+        // Begin by checking the last batch of the open episodes against
+        // the newly arrived right batch
+        Batch left = openEpisodeBatches.getLast();
+        if (isSegmentationWithBatch(left, right)) {
+            emitEpisode(new ArrayList<>(openEpisodeBatches), collector);
+            openEpisodeBatches.clear();
+            openEpisodeBatches.addLast(right);
+        } else {
+            if (checkSegmentationInExponentialWindow(openEpisodeBatches, right)) {
+                emitEpisode(new ArrayList<>(openEpisodeBatches), collector);
+                openEpisodeBatches.clear();
+                openEpisodeBatches.addLast(right);
+            }
+        }
+    }
+
 
     private void processFirstWindow(List<Batch> windowBatches,
                                     Deque<Batch> openEpisodeBatches,
