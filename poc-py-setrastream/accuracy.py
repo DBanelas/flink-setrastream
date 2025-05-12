@@ -1,12 +1,15 @@
 import pandas as pd
 from typing import List
 
-def boundaries(df: pd.DataFrame) -> List[float]:
+def boundaries(df: pd.DataFrame, start: bool = True) -> List[float]:
     """
     Return *internal* episode-end stamps as a sorted list.
     Expects columns start_time, end_time (seconds).
     """
-    return df["end_time"].iloc[:-1].tolist() if len(df) > 1 else []
+    if start:
+        return df["start_time"].iloc[:-1].tolist() if len(df) > 1 else []
+    else:
+        return df["end_time"].iloc[1:].tolist() if len(df) > 1 else []
 
 def change_point_metrics(detected_csv: str,
                          truth_csv: str,
@@ -16,12 +19,14 @@ def change_point_metrics(detected_csv: str,
     tol: ± seconds tolerance window.
     Prints P, R, F1 and returns a dict.
     """
-    det_times = boundaries(pd.read_csv(detected_csv))
-    gt_times  = boundaries(pd.read_csv(truth_csv))
+    det_start_times = boundaries(pd.read_csv(detected_csv), start=True)
+    det_end_times = boundaries(pd.read_csv(detected_csv), start=False)
+    gt_start_times = boundaries(pd.read_csv(truth_csv), start=True)
+    gt_end_times = boundaries(pd.read_csv(truth_csv), start=False)
 
-    det_used = [False]*len(det_times)   # each detection may match once
+    det_used = [False]*len(det_start_times)   # each detection may match once
     TP = 0
-    for g in gt_times:
+    for gt_ep_index in len(gt_start_times):
         # nearest unused detection within ± tol
         best = None
         best_dist = tol + 1
@@ -51,7 +56,7 @@ def change_point_metrics(detected_csv: str,
 # ---------------------------------------------------------------------------
 # EXAMPLE
 # ---------------------------------------------------------------------------
-ROBOT_ID = 3
-change_point_metrics(f"episodes_{ROBOT_ID}.csv",
-                     f"episodes_groundtruth_{ROBOT_ID}.csv",
+ROBOT_ID = 0
+change_point_metrics(f"/Users/dbanelas/Developer/flink-setrastream/poc-py-setrastream/episodes_{ROBOT_ID}.csv",
+                     f"/Users/dbanelas/Developer/flink-setrastream/poc-py-setrastream/episodes_groundtruth_{ROBOT_ID}.csv",
                      tol=0.5)

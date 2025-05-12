@@ -9,11 +9,11 @@ ROBOT_ID = 0  # ID of the robot to analyze (0, 1, 2, ...)
 # ------------------------------ CONFIGURATION ------------------------------
 params = {
     "window_size_T": 60.0,        # seconds kept in the sliding window (unused offline)
-    "batch_interval_tau": 2.5,    # τ in seconds – size of each batch
+    "batch_interval_tau": 0.5,    # τ in seconds – size of each batch
     "division_threshold_sigma": 0.7,  # RV threshold σ
-    "feature_columns": ["dpx", "dpy", "vx", "vy"],  # features forming the movement-vector
-    "input_csv": f"robots_id{ROBOT_ID}.csv",    # path to your input file
-    "output_csv": f"episodes_{ROBOT_ID}.csv"       # path to generated episodes file
+    "feature_columns": ["dpx", "dpy"],  # features forming the movement-vector
+    "input_csv": f"/Users/dbanelas/Developer/flink-setrastream/poc-py-setrastream/robots_id{ROBOT_ID}.csv",    # path to your input file
+    "output_csv": f"/Users/dbanelas/Developer/flink-setrastream/poc-py-setrastream/episodes_{ROBOT_ID}.csv"       # path to generated episodes file
 }
 # ---------------------------------------------------------------------------
 
@@ -99,7 +99,7 @@ for j in range(1, len(batches)):
 
     # short-term change check (prev vs right)
     rv_val = rv_coeff(left["BBt"], right["BBt"])
-    # print(f"[INFO] RV = {rv_val} (σ = {sigma})")
+
     boundary = False
     if rv_val <= sigma:
         boundary = True
@@ -113,7 +113,6 @@ for j in range(1, len(batches)):
             left_batches = batches[left_start:j]
             BBt_left_sum = sum(b["BBt"] for b in left_batches)
             rv_val = rv_coeff(BBt_left_sum, right["BBt"])
-            # print(f"[INFO] COSINE = {rv_val:.3f} (σ = {sigma})")
 
             if rv_val <= sigma:
                 boundary = True
