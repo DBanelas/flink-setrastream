@@ -15,7 +15,7 @@ public class Main {
     private static final String TOPIC = "robot_data";
     private static final String BOOTSTRAP_SERVER = "localhost:9092";
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final String ROBOT_DATA_FILE_PATH = "/Users/dbanelas/Developer/flink-setrastream/data/smart_factory_with_collisions_100_robots_sorted.csv";
+    private static final String ROBOT_DATA_FILE_PATH = "/Users/dbanelas/Developer/flink-setrastream/data/smart_factory_with_collisions_100_robots_sorted_dpx_dpy.csv";
 
     public static void main(String[] args) throws Exception {
         Path csv = Path.of(args.length > 0 ? args[0] : ROBOT_DATA_FILE_PATH);
@@ -55,7 +55,9 @@ public class Main {
                 Boolean.parseBoolean(f[10]),
                 Boolean.parseBoolean(f[11]),
                 Boolean.parseBoolean(f[12]),
-                Boolean.parseBoolean(f[13])
+                Boolean.parseBoolean(f[13]),
+                Double.parseDouble(f[14]), // dpx
+                Double.parseDouble(f[15]) // dpy
         );
     }
 

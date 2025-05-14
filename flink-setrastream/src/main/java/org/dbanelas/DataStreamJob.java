@@ -20,6 +20,7 @@ package org.dbanelas;
 
 import net.sourceforge.argparse4j.inf.Namespace;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
@@ -29,6 +30,7 @@ import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsIni
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
+import org.apache.flink.streaming.api.functions.sink.v2.DiscardingSink;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.windows.GlobalWindow;
@@ -108,8 +110,8 @@ public class DataStreamJob {
 				.countWindow(numBatchesInSegmentationWindow, 1)
 				.process(new SegmentingWindowFunction(numBatchesInSegmentationWindow, 0.7));
 
-		// Print the segments to the console
-		segmentStream.print();
+		segmentStream.map(tuple -> "Robot: " + tuple.f2 + " Start: " + tuple.f0 + ", " +
+                "End: " + tuple.f1).print();
 
 		// Execute program, beginning computation.
 		env.execute("Semantic Trajectory Segmentation Job");

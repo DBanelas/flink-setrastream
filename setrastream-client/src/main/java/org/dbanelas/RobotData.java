@@ -16,5 +16,7 @@ public record RobotData(
         @JsonProperty("linear")            boolean linear,
         @JsonProperty("rotational")        boolean rotational,
         @JsonProperty("Deadlock_Bool")     boolean deadlockBool,
-        @JsonProperty("RobotBodyContact")  boolean robotBodyContact
+        @JsonProperty("RobotBodyContact")  boolean robotBodyContact,
+        @JsonProperty("dpx")               double dpx,
+        @JsonProperty("dpy")               double dpy
 ) {}

@@ -58,7 +58,7 @@ public class ArgumentParserUtil {
         parser.addArgument("-bw", "--batch-window")
                 .type(Integer.class)
                 .dest("batchWindow")
-                .setDefault(1000)
+                .setDefault(500)
                 .help("Batch window size in milliseconds");
 
         parser.addArgument("-sw", "--segmentation-window")

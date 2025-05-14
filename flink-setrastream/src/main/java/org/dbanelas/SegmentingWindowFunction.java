@@ -12,17 +12,14 @@ import org.apache.flink.streaming.api.windowing.windows.GlobalWindow;
 import org.apache.flink.util.Collector;
 import org.hipparchus.linear.RealMatrix;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple3<Long, Long, Integer>, Integer, GlobalWindow> {
     // Constants used in the algorithm
-    private final double RV_EPSILON = 1e-12;
-    private final int NUM_POINTS_IN_EPISODE_PLACEHOLDER = 1;
+    private static final double RV_EPSILON = 1e-12;
+    private static final int NUM_POINTS_IN_EPISODE_PLACEHOLDER = 1;
 
     // Constructor variables
     private final int numBatchesInSegmentationWindow;
@@ -44,12 +41,12 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
                 "firstWindowState",
                 TypeInformation.of(Boolean.class));
 
-        ListStateDescriptor<Batch> openEpisodeBatchesStateDescriptor = new ListStateDescriptor<>(
-                "openEpisodeBatches",
+        ListStateDescriptor<Batch> openEpisodeBufferStateDescriptor = new ListStateDescriptor<>(
+                "openEpisodeBufferState",
                 TypeInformation.of(Batch.class));
 
-        this.firstWindowState = getIterationRuntimeContext().getState(firstWindowStateDescriptor);
-        this.openEpisodeState = getIterationRuntimeContext().getListState(openEpisodeBatchesStateDescriptor);
+        this.firstWindowState = getRuntimeContext().getState(firstWindowStateDescriptor);
+        this.openEpisodeState = getRuntimeContext().getListState(openEpisodeBufferStateDescriptor);
     }
 
     @Override
@@ -64,19 +61,25 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
             return; // Incomplete window, wait until a full window is received
         }
 
-        final boolean isFirst = Boolean.TRUE.equals(firstWindowState.value());
-        final Deque<Batch> openEpisodeBatches = loadOpenEpisodeBuffer();
+        boolean isFirst;
+        if (firstWindowState.value() == null) {
+            isFirst = true;
+        } else {
+            isFirst = firstWindowState.value();
+        }
+
+        final Deque<Batch> openEpisodeBuffer = loadOpenEpisodeBuffer();
         if (isFirst) {
-            processFirstWindow(windowBatchList, openEpisodeBatches, collector);
+            processFirstWindow(windowBatchList, openEpisodeBuffer, collector, key);
             firstWindowState.update(false);
         } else {
             // Process later windows
             // Here, only the last batch needs to be compared against the exponential window
             // of open episodes
-            processNonFirstWindow(openEpisodeBatches, windowBatchList.get(windowBatchList.size() - 1), collector);
+            processSubsequentWindow(openEpisodeBuffer, windowBatchList.get(windowBatchList.size() - 1), collector, key);
         }
 
-        openEpisodeState.update(new ArrayList<>(openEpisodeBatches));
+        openEpisodeState.update(new ArrayList<>(openEpisodeBuffer));
     }
 
     private Deque<Batch> loadOpenEpisodeBuffer() throws Exception {
@@ -84,35 +87,35 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
         final Deque<Batch> buffer = new ArrayDeque<>();
         stateIterable.forEach(buffer::addLast);
         return buffer;
-
     }
 
-    private void processNonFirstWindow(Deque<Batch> openEpisodeBatches,
-                                       Batch right,
-                                       Collector<Tuple3<Long, Long, Integer>> collector) {
+    private void processSubsequentWindow(Deque<Batch> openEpisodeBuffer,
+                                         Batch right,
+                                         Collector<Tuple3<Long, Long, Integer>> collector,
+                                         Integer key) {
 
         // Begin by checking the last batch of the open episodes against
         // the newly arrived right batch
-        Batch left = openEpisodeBatches.getLast();
+        Batch left = openEpisodeBuffer.getLast();
         if (isSegmentationWithBatch(left, right)) {
-            emitEpisode(new ArrayList<>(openEpisodeBatches), collector);
-            openEpisodeBatches.clear();
-            openEpisodeBatches.addLast(right);
+            emitEpisode(new ArrayList<>(openEpisodeBuffer), collector, key);
+            openEpisodeBuffer.clear();
+            openEpisodeBuffer.addLast(right);
         } else {
-            if (checkSegmentationInExponentialWindow(openEpisodeBatches, right)) {
-                emitEpisode(new ArrayList<>(openEpisodeBatches), collector);
-                openEpisodeBatches.clear();
-                openEpisodeBatches.addLast(right);
+            if (checkSegmentationInExponentialWindow(openEpisodeBuffer, right)) {
+                emitEpisode(new ArrayList<>(openEpisodeBuffer), collector, key);
+                openEpisodeBuffer.clear();
+                openEpisodeBuffer.addLast(right);
             }
         }
     }
 
-
     private void processFirstWindow(List<Batch> windowBatches,
-                                    Deque<Batch> openEpisodeBatches,
-                                    Collector<Tuple3<Long, Long, Integer>> collector) {
-        openEpisodeBatches.clear();
-        openEpisodeBatches.addLast(windowBatches.get(0));
+                                    Deque<Batch> openEpisodeBuffer,
+                                    Collector<Tuple3<Long, Long, Integer>> collector,
+                                    Integer key) {
+        openEpisodeBuffer.clear();
+        openEpisodeBuffer.addLast(windowBatches.get(0));
         int episodeStartIndex = 0;
         for (int i = 1; i < windowBatches.size(); i++) {
             Batch left = windowBatches.get(i - 1);
@@ -120,32 +123,32 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
 
             if (isSegmentationWithBatch(left, right)) {
                 // If the RV coefficient is less than the threshold, we have segmentation and need to emit the current episode
-                emitEpisode(windowBatches.subList(episodeStartIndex, i), collector);
-                openEpisodeBatches.clear();
+                emitEpisode(windowBatches.subList(episodeStartIndex, i), collector, key);
+                openEpisodeBuffer.clear();
                 episodeStartIndex = i;
             } else {
 
-                if (checkSegmentationInExponentialWindow(openEpisodeBatches, right)) {
+                if (checkSegmentationInExponentialWindow(openEpisodeBuffer, right)) {
                     List<Batch> episodeBatches = windowBatches.subList(episodeStartIndex, i);
-                    emitEpisode(episodeBatches, collector);
-                    openEpisodeBatches.clear();
+                    emitEpisode(episodeBatches, collector, key);
+                    openEpisodeBuffer.clear();
                     episodeStartIndex = i;
                 }
-                openEpisodeBatches.addLast(right);
             }
+            openEpisodeBuffer.addLast(right);
         }
     }
 
-    private boolean checkSegmentationInExponentialWindow(Deque<Batch> openEpisodeBatches, Batch right) {
+    private boolean checkSegmentationInExponentialWindow(Deque<Batch> openEpisodeBuffer, Batch right) {
         // Implement exponential window rv check with open episode batches
-        int maxLeftLength = openEpisodeBatches.size();
+        int maxLeftLength = openEpisodeBuffer.size();
         int k = 2;
         while (Math.pow(2, k - 1) <= maxLeftLength) {
             int leftLength = (int) Math.pow(2, k - 1);
             int leftStart = maxLeftLength - leftLength;
 
             // Get the batches that belong to the exponential window
-            List<Batch> exponentialWindowBatches = openEpisodeBatches.stream()
+            List<Batch> exponentialWindowBatches = openEpisodeBuffer.stream()
                     .skip(leftStart)
                     .collect(Collectors.toList());
 
@@ -159,11 +162,10 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
         return false;
     }
 
-
-    private void emitEpisode(List<Batch> episodeBatches, Collector<Tuple3<Long, Long, Integer>> collector) {
+    private void emitEpisode(List<Batch> episodeBatches, Collector<Tuple3<Long, Long, Integer>> collector, Integer key) {
         Batch first = episodeBatches.get(0);
         Batch last = episodeBatches.get(episodeBatches.size() - 1);
-        collector.collect(new Tuple3<>(first.getMinTimestamp(), last.getMaxTimestamp(), NUM_POINTS_IN_EPISODE_PLACEHOLDER));
+        collector.collect(new Tuple3<>(first.getMinTimestamp(), last.getMaxTimestamp(), key));
     }
 
     private boolean isSegmentationWithBatch(Batch left, Batch right) {
