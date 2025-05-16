@@ -16,6 +16,9 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
+/**
+ *
+ */
 public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple3<Long, Long, Integer>, Integer, GlobalWindow> {
     // Constants used in the algorithm
     private static final double RV_EPSILON = 1e-12;
@@ -26,8 +29,8 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
     private final double segmentationThreshold;
 
     // State variables
-    private ValueState<Boolean> firstWindowState;
-    private ListState<Batch> openEpisodeState;
+    private transient ValueState<Boolean> firstWindowState;
+    private transient ListState<Batch> openEpisodeState;
 
     public SegmentingWindowFunction(int numBatchesInSegmentationWindow,
                                     double segmentationThreshold) {

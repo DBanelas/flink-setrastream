@@ -6,6 +6,7 @@ import org.apache.flink.util.Collector;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class BatchingWindowFunction extends ProcessWindowFunction<DataPoint, Batch, Integer, TimeWindow> {
 

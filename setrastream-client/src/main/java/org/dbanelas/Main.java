@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.serialization.StringSerializer;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -15,7 +14,8 @@ public class Main {
     private static final String TOPIC = "robot_data";
     private static final String BOOTSTRAP_SERVER = "localhost:9092";
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final String ROBOT_DATA_FILE_PATH = "/Users/dbanelas/Developer/flink-setrastream/data/smart_factory_with_collisions_100_robots_sorted_dpx_dpy.csv";
+    private static final String ROBOT_DATA_FILE_PATH = "/Users/dbanelas/Developer/flink-setrastream/data/realistic_robot_trajectories_1000_robots_sorted_dpx_dpy.csv";
+//    private static final String ROBOT_DATA_FILE_PATH = "/Users/dbanelas/Developer/flink-setrastream/data/smart_factory_with_collisions_100_robots_sorted_dpx_dpy.csv";
 
     public static void main(String[] args) throws Exception {
         Path csv = Path.of(args.length > 0 ? args[0] : ROBOT_DATA_FILE_PATH);
@@ -24,16 +24,24 @@ public class Main {
             System.out.println("Sending data to Kafka topic: " + TOPIC);
             String header = br.readLine();
             String line;
-            int count = 0;
+            long count = 0;
+            long totalSizeSent = 0;
             while ((line = br.readLine()) != null) {
                 RobotData row = parse(line);
                 String key = row.robotID() + "-" + row.currentTimeStep();
                 String json   = MAPPER.writeValueAsString(row);
+
+                long keyBytes = key.getBytes().length;
+                long jsonBytes = json.getBytes().length;
+                totalSizeSent += keyBytes + jsonBytes;
+
                 ProducerRecord<String, String> record = new ProducerRecord<>(TOPIC, key, json);
                 producer.send(record);
+                count++;
             }
-            System.out.println("Finished sending data to Kafka topic: " + TOPIC + ". Flushing producer...");
             producer.flush();
+            double mb = totalSizeSent / 1024d / 1024d;
+            System.out.printf("Sent %,d records (%.2f MB)%n", count, mb);
         }
     }
 
