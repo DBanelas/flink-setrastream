@@ -30,7 +30,6 @@ public class ArgumentParserUtil {
                 .required(true)
                 .help("Names of the feature columns to be used in the segmentation process");
 
-
         parser.addArgument("-kh", "--kafka-host")
                 .type(String.class)
                 .dest("kafkaHost")
@@ -66,6 +65,12 @@ public class ArgumentParserUtil {
                 .dest("segmentationWindow")
                 .setDefault(60000)
                 .help("Segmentation window size in milliseconds");
+
+        parser.addArgument("-p", "--parallelism")
+                .type(Integer.class)
+                .dest("parallelism")
+                .setDefault(1)
+                .help("Parallelism level for the trajectory segmentation procedure");
 
         return parser;
     }

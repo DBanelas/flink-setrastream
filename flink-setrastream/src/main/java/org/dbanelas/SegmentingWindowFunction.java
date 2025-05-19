@@ -7,11 +7,15 @@ import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.metrics.Gauge;
+import org.apache.flink.metrics.Meter;
+import org.apache.flink.metrics.MeterView;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.windows.GlobalWindow;
 import org.apache.flink.util.Collector;
 import org.hipparchus.linear.RealMatrix;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -22,15 +26,20 @@ import java.util.stream.StreamSupport;
 public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple3<Long, Long, Integer>, Integer, GlobalWindow> {
     // Constants used in the algorithm
     private static final double RV_EPSILON = 1e-12;
-    private static final int NUM_POINTS_IN_EPISODE_PLACEHOLDER = 1;
 
     // Constructor variables
     private final int numBatchesInSegmentationWindow;
     private final double segmentationThreshold;
 
+    // Variables used for memory measurements
+    private List<Batch> windowBatchList;
+
     // State variables
     private transient ValueState<Boolean> firstWindowState;
     private transient ListState<Batch> openEpisodeState;
+
+    private transient Meter batchesProcessedMeter;
+    private transient Gauge<Long> memoryUsed;
 
     public SegmentingWindowFunction(int numBatchesInSegmentationWindow,
                                     double segmentationThreshold) {
@@ -50,6 +59,26 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
 
         this.firstWindowState = getRuntimeContext().getState(firstWindowStateDescriptor);
         this.openEpisodeState = getRuntimeContext().getListState(openEpisodeBufferStateDescriptor);
+
+        this.batchesProcessedMeter = getRuntimeContext().getMetricGroup()
+                .addGroup("throughput")
+                .meter("batchesProcessedPerSecond", new MeterView(10));
+
+        this.memoryUsed = getRuntimeContext()
+                .getMetricGroup()
+                .addGroup("memory")
+                .gauge("memoryUsedForSegmentation", () -> {
+                    long windowBatchListSize;
+                    if (windowBatchList == null) windowBatchListSize = 0;
+                    else windowBatchListSize = Mem.deepSize(windowBatchList);
+                    try {
+                        Deque<Batch> openEpisodeBuffer = loadOpenEpisodeBuffer();
+                        return Mem.deepSize(openEpisodeBuffer) + windowBatchListSize;
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+
     }
 
     @Override
@@ -59,7 +88,7 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
                         Collector<Tuple3<Long, Long, Integer>> collector) throws Exception {
 
         // Get the batches from the iterable
-        List<Batch> windowBatchList = toImmutableList(batches);
+        this.windowBatchList = toImmutableList(batches);
         if (windowBatchList.size() != numBatchesInSegmentationWindow) {
             return; // Incomplete window, wait until a full window is received
         }
@@ -96,7 +125,7 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
                                          Batch right,
                                          Collector<Tuple3<Long, Long, Integer>> collector,
                                          Integer key) {
-
+        this.batchesProcessedMeter.markEvent();
         // Begin by checking the last batch of the open episodes against
         // the newly arrived right batch
         Batch left = openEpisodeBuffer.getLast();
@@ -123,6 +152,7 @@ public class SegmentingWindowFunction extends ProcessWindowFunction<Batch, Tuple
         for (int i = 1; i < windowBatches.size(); i++) {
             Batch left = windowBatches.get(i - 1);
             Batch right = windowBatches.get(i);
+            this.batchesProcessedMeter.markEvent();
 
             if (isSegmentationWithBatch(left, right)) {
                 // If the RV coefficient is less than the threshold, we have segmentation and need to emit the current episode

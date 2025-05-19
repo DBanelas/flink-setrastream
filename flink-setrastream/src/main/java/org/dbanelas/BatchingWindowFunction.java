@@ -1,14 +1,25 @@
 package org.dbanelas;
 
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.metrics.Meter;
+import org.apache.flink.metrics.MeterView;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.util.Collector;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 public class BatchingWindowFunction extends ProcessWindowFunction<DataPoint, Batch, Integer, TimeWindow> {
+
+    private transient Meter tuplesPerSecond;
+
+    @Override
+    public void open(Configuration parameters) throws Exception {
+        this.tuplesPerSecond = getRuntimeContext().getMetricGroup()
+                .addGroup("throughput")
+                .meter("tuplesPerSecond", new MeterView(10));
+    }
 
     @Override
     public void process(Integer key,
@@ -21,6 +32,7 @@ public class BatchingWindowFunction extends ProcessWindowFunction<DataPoint, Bat
         long maxTimestamp = Long.MIN_VALUE;
         for (DataPoint dataPoint : dataPointsIterable) {
             dataPoints.add(dataPoint);
+            this.tuplesPerSecond.markEvent();
             minTimestamp = Math.min(minTimestamp, dataPoint.getTimestamp());
             maxTimestamp = Math.max(maxTimestamp, dataPoint.getTimestamp());
         }

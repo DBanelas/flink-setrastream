@@ -21,12 +21,14 @@ package org.dbanelas;
 import net.sourceforge.argparse4j.inf.Namespace;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
@@ -56,6 +58,7 @@ public class DataStreamJob {
         String timestampColumn = ns.getString("timestamp");
         int batchWindow = ns.getInt("batchWindow");
         int segmentationWindow = ns.getInt("segmentationWindow");
+        int parallelism = ns.getInt("parallelism");
         String bootstrapServer = kafkaHost + ":" + kafkaPort;
         int numBatchesInSegmentationWindow = segmentationWindow / batchWindow;
 
@@ -94,28 +97,28 @@ public class DataStreamJob {
 
         DataStream<DataPoint> dataStream = env
                 .fromSource(source, watermarkStrategy, "Robot Data Source");
-
         // Create batches of tuples for
         DataStream<Batch> batchStream = dataStream
                 .keyBy(DataPoint::getId)
                 .window(TumblingEventTimeWindows.of(Duration.ofMillis(batchWindow)))
                 .process(new BatchingWindowFunction())
-                .name("BatchCreation");
+                .name("WindowedBatchCreation");
 
-//        DataStream<Tuple3<Long, Long, Integer>> segmentStream = batchStream
-//                .keyBy(Batch::getId)
-//                .process(new LastKSegmentor(numBatchesInSegmentationWindow, 0.7))
-//                .name("TrajectorySegmentation");
-
-		DataStream<Tuple3<Long, Long, Integer>> segmentStream = batchStream
-				.keyBy(Batch::getId)
-				.countWindow(numBatchesInSegmentationWindow, 1)
-				.process(new SegmentingWindowFunction(numBatchesInSegmentationWindow, 0.7))
-                .name("TrajectorySegmentation");
-
-        segmentStream
+        DataStreamSink<String> segmentStream = batchStream
+                .keyBy(Batch::getId)
+                .process(new LastKSegmentor(numBatchesInSegmentationWindow, 0.7))
+                .name("TrajectorySegmentation")
                 .map(tuple -> tuple.f0 + ", " + tuple.f1)
                 .sinkTo(sink);
+
+//		DataStreamSink<String> segmentStream = batchStream
+//				.keyBy(Batch::getId)
+//				.countWindow(numBatchesInSegmentationWindow, 1)
+//				.process(new SegmentingWindowFunction(numBatchesInSegmentationWindow, 0.7))
+//                .name("TrajectorySegmentation")
+//                .map(tuple -> tuple.f0 + ", " + tuple.f1)
+//                .sinkTo(sink);
+
         // Execute program, beginning computation.
         env.execute("Semantic Trajectory Segmentation Job");
     }

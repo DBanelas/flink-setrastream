@@ -6,12 +6,14 @@ import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.metrics.Gauge;
 import org.apache.flink.metrics.Meter;
 import org.apache.flink.metrics.MeterView;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
 import org.hipparchus.linear.RealMatrix;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -24,6 +26,8 @@ public class LastKSegmentor extends KeyedProcessFunction<Integer, Batch, Tuple3<
 
     private transient ValueState<CircularBuffer<Batch>> openEpisodeBufferState;
     private transient Meter batchesProcessedMeter;
+
+    private transient Gauge<Long> memoryUsed;
 
     public LastKSegmentor(int K, double sigma) {
         this.K = K;
@@ -120,7 +124,22 @@ public class LastKSegmentor extends KeyedProcessFunction<Integer, Batch, Tuple3<
 
         this.batchesProcessedMeter = getRuntimeContext()
                 .getMetricGroup()
-                .meter("batchesProcessed", new MeterView(10));
+                .addGroup("throughput")
+                .meter("batchesProcessedPerSecond", new MeterView(10));
+
+        this.memoryUsed = getRuntimeContext()
+                .getMetricGroup()
+                .addGroup("memory")
+                .gauge("memoryUsedForSegmentation", () -> {
+                    CircularBuffer<Batch> buffer;
+                    try {
+                        buffer = openEpisodeBufferState.value();
+                        if (buffer == null) return 0L;
+                        return Mem.deepSize(buffer);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
 
         this.openEpisodeBufferState = getRuntimeContext().getState(openEpisodeBufferStateDescriptor);
     }
